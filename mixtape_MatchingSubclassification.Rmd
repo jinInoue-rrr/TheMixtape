@@ -1,0 +1,74 @@
+---
+title: "mixtape_MatchingSubclassification"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+pacman::p_load(tidyverse, haven)
+
+```
+
+
+```{r titanic}
+
+read_data <- function(df){
+  full_path <- paste("https://raw.github.com/scunning1975/mixtape/master/",
+                     df, sep = "")
+  df <- read_dta(full_path)
+  return(df)
+}
+
+
+titanic <- read_data("titanic.dta") %>% 
+  mutate(d = case_when(class == 1 ~ 1, TRUE ~ 0))
+
+
+titanic %>% glimpse()
+
+ey1 <- titanic %>% 
+  filter(d == 1) %>% 
+  pull(survived) %>% 
+  mean()
+
+ey0 <- titanic %>% 
+  filter(d == 0) %>% 
+  pull(survived) %>% 
+  mean()
+
+sdo <- ey1 - ey0
+
+sdo##age and genderがobservable confounderであるが、それらを統制していない単純な平均差
+
+
+
+```
+
+### subclassification procedure
+
+- データを分割する（若年男性、若年女性、壮年男性、壮年女性）
+
+- それぞれのグループについて差を計算する
+
+- control群の人々の数をそれぞれのグループで計算し、それらをcontrolの総数で割る。これがstrata weightになる
+
+- strata weightsを用いてaverage survival rateを計算する
+
+
+
+```{r titanic_subclassification}
+
+pacman::p_load(stargazer, magrittr, tidyverse, haven)
+
+
+titanic
+
+
+
+
+
+```
+
+
+

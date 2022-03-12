@@ -1,0 +1,110 @@
+---
+title: "mixtape_SyntheticControls"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+```
+
+### the application of Synthetic Control Method:Black Males incarceration study
+
+- RQ:テキサス州における93年の監獄大量増加は、アフリカンアメリカンの男性の投獄数を増加させたのか？
+
+
+```{r synth_1}
+
+pacman::p_load(tidyverse, haven, Synth, devtools)
+
+if(!require(SCtools))devtools::install_github("bcastanho/SCtools")
+library(SCtools)
+
+
+read_data <- function(df){
+  full_path <- paste("https://raw.github.com/scunning1975/mixtape/master/",
+                     df, sep = "")
+  df <- read_dta(full_path)
+  return(df)
+}
+
+texas <- read_data("texas.dta") %>% 
+  as.data.frame(.)
+
+# texas %>% glimpse()
+
+texas %>% variable.names()
+
+# {Synth}パッケージのデータセットの準備をしている
+
+dataprep_out <- dataprep(
+  foo = texas, 
+  predictors = c("poverty", "income"),
+  predictors.op = "mean",
+  time.predictors.prior = 1985:1993,
+  special.predictors = list(
+    list("bmprison", c(1988, 1990:1992), "mean"),
+    list("alcohol", 1990, "mean"), 
+    list("aidscapita", 1990:1991, "mean"),
+    list("black", 1990:1992, "mean"),
+    list("perc1519", 1990, "mean")),
+    dependent = "bmprison",#the number of blackmale imprisoned
+    unit.variable = "statefip",
+    unit.names.variable = "state", 
+    time.variable = "year",
+    treatment.identifier = 48,
+    controls.identifier = c(1, 2, 4:6, 8:13, 15:42, 44:47, 49:51, 53:56),
+    time.optimize.ssr = 1985:1993,
+    time.plot = 1985:2000)
+
+
+#X1,X0はそれぞれtreated/controlのデータのmatrix
+#Z1,Z0はそれぞれtreated/controlにおいて、MSPEがminimizedされるpre-treatmentsの期間におけるアウトカムのデータ
+
+synth_out <- synth(data.prep.obj = dataprep_out)
+
+path.plot(synth_out, dataprep_out)
+
+synth_out %>% glimpse()
+
+
+
+
+
+```
+
+
+
+
+```{r synth_2}
+
+gaps.plot(synth_out, dataprep_out)
+
+# dataprep_out$names.and.numbers$unit.names %>% str()
+# 
+# dataprep_out[dataprep_out$names.and.numbers$unit.names == "Florida",]
+# 
+# synth_out$
+# 
+# synth_out$solution.v#Nelder-Meadは最適化手法の一つらしい
+# synth_out$solution.w
+
+
+```
+
+
+```{r synth_3_7}
+
+library(stringr)
+
+placebos <- generate.placebos(dataprep_out, synth_out, Sigf.ipop = 3)
+
+plot_placebos(placebos)
+
+mspe.plot(placebos, discard.extreme = TRUE, mspe.limit = 1, plot.hist = TRUE)
+
+
+
+```
+
+
