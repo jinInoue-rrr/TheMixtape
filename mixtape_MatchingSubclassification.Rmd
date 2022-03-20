@@ -10,6 +10,12 @@ pacman::p_load(tidyverse, haven)
 
 ```
 
+## Subclassification
+
+- 層ごとに十分なサンプル数があれば、common supportの仮定が満たされる
+
+- 逆に言えば、次元の呪いによって、サンプル数がcovariatesの数に対して少ないと、common supportがviolateされるため、ATTが計算できない
+
 
 ```{r titanic}
 
@@ -62,13 +68,378 @@ sdo##age and genderがobservable confounderであるが、それらを統制し�
 pacman::p_load(stargazer, magrittr, tidyverse, haven)
 
 
-titanic
+titanic %<>% 
+  mutate(s = case_when(sex == 0 & age == 1 ~ 1,
+                       sex == 0 & age == 0 ~ 2,
+                       sex == 1 & age == 1 ~ 3,
+                       sex == 1 & age == 0 ~ 4,
+                       TRUE ~ 0))
 
+# titanic %>% glimpse()
+
+library(purrr)
+
+titanic %>% glimpse()
+
+titanic <- titanic %>% 
+  mutate(survived = as.double(survived))
+
+titanic %>% 
+  group_by(s) %>% 
+  nest() %>% 
+  mutate(raw_mean = map_df(data, ~mean(data$survived), na.rm = TRUE))
+
+## summariseを使った方が数字を出すだけなら楽！
+
+titanic %>% 
+  group_by(s) %>% 
+  summarise(mean = mean(survived))
+
+## nestにこだわるならmap
+
+titanic %>% 
+  group_by(s) %>% 
+  nest() %>% 
+  mutate(model_lm = map(data, ~lm(survived ~ class, data = .x)))
+
+## 正解を叩き出した
+
+titanic %>% 
+  group_by(s) %>% 
+  nest() %>% 
+  arrange(s) %>% 
+  mutate(mean = map_dbl(data, ~mean(.x$survived))) 
+
+
+## potential outcomesによって分けて計算してみる
+
+obs <-  nrow(titanic)
+
+nested <- titanic %>% 
+  group_by(s) %>% 
+  nest() %>% 
+  arrange(s) %>% 
+  mutate(for_mean_1 = map(data, ~filter(.x, .x$d == 1)),
+         for_mean_0 = map(data, ~filter(.x, .x$d == 0))) %>% 
+  mutate(mean_1 = map_dbl(for_mean_1, ~mean(.x$survived)),
+         mean_0 = map_dbl(for_mean_0, ~mean(.x$survived)),
+         diff = mean_1 - mean_0) %>% 
+  mutate(weights = map_dbl(.x = for_mean_0, ~nrow(.x)/obs))
+
+
+
+WATE <- nested %>% 
+  ungroup(s) %>% 
+  dplyr::select(mean_1, mean_0, diff, weights) %>% 
+  mutate(weighted = diff * weights,
+         simple_diff = mean_1 - mean_0) %>% 
+  summarise(wate = sum(weighted)) %>% 
+  as.double(.)
+
+
+
+simple_diff <- titanic %>% 
+  group_by(d) %>% 
+  summarise_all(mean) %>%
+  arrange(d) %>% 
+  pull(survived)
+
+
+SDO <- abs(simple_diff[[1]] - simple_diff[[2]])
+SDO#単なる平均値の比較はselection bias項をキャンセルできていないため、因果効果を過大評価している
+
+stargazer(WATE, SDO, type = "text")##チュートリアルと同じ結果を再現完了した！
+
+## 層別してから回帰（実質subclassificationのはず）
+
+titanic %>% 
+  split(.$s) %>% 
+  map(~lm(survived ~ d, data = .x))
+
+
+titanic %>% group_by(s) %>% 
+  nest() %>% 
+  pull(data)
+
+
+titanic %>% 
+  mutate()
+
+
+
+```
+
+
+
+
+```{r tutorial_scripts}
+
+Titanic <- read_data("titanic.dta") %>% 
+  mutate(d = case_when(class == 1 ~ 1, TRUE ~ 0))
+
+Titanic %<>%
+  mutate(s = case_when(sex == 0 & age == 1 ~ 1,
+                       sex == 0 & age == 0 ~ 2,
+                       sex == 1 & age == 1 ~ 3,
+                       sex == 1 & age == 0 ~ 4,
+                       TRUE ~ 0),
+         survived = as.double(survived))
+
+
+ey11 <- Titanic %>% 
+  filter(s == 1 & d == 1) %$%##展示パイプ演算子
+  mean(survived)
+
+
+ey10 <- Titanic %>% 
+  filter(s == 1 & d == 0) %$%
+  mean(survived)
+
+
+ey21 <- Titanic %>% 
+  filter(s == 2 & d == 1) %$%
+  mean(survived)
+
+ey20 <- Titanic %>% 
+  filter(s == 2 & d == 0) %$%
+  mean(survived)
+
+ey31 <- Titanic %>% 
+  filter(s == 3 & d == 1) %$%
+  mean(survived)
+
+ey30 <- Titanic %>% 
+  filter(s == 3 & d == 0) %$%
+  mean(survived)
+
+
+ey41 <- Titanic %>% 
+  filter(s == 4 & d == 1) %$% 
+  mean(survived)
+
+ey40 <- Titanic %>% 
+  filter(s == 4 & d == 0) %$% 
+  mean(survived)
+
+diff1 = ey11 - ey10
+diff2 = ey21 - ey20
+diff3 = ey31 - ey30
+diff4 = ey41 - ey40
+
+diff1
+diff2
+diff3
+diff4
+
+obs = nrow(titanic)
+
+wt1 <- titanic %>% 
+  filter(s == 1 & d == 0) %$% 
+  nrow(.)/obs
+
+wt2 <- titanic %>% 
+  filter(s == 2 & d == 0) %$%
+  nrow(.)/obs
+
+wt3 <- titanic %>% 
+  filter(s == 3 & d == 0) %$%
+  nrow(.)/obs
+
+wt4 <- titanic %>% 
+  filter(s == 4 & d == 0) %$%
+  nrow(.)/obs
+
+
+WeightedAve = diff1 * wt1 + diff2 * wt2 + diff3 * wt3 + diff4 * wt4
+
+WeightedAve
+
+stargazer(WeightedAve, sdo, type = "text")
+
+
+
+```
+
+
+
+
+```{r training_bias_reduction}
+
+library(tidyverse)
+library(haven)
+
+
+read_data <- function(df){
+  
+  full_path <- paste("https://raw.github.com/scunning1975/mixtape/master/",
+                     df, sep = "")
+  df <- read_dta(full_path)
+  return(df)
+}
+
+training_bias_reduction <- read_data("training_bias_reduction.dta") %>% 
+  mutate(
+    Y1 = case_when(Unit %in% c(1,2,3,4) ~ Y),
+    Y0 = c(4,0,5,1,4,0,5,1))
+
+# training_bias_reduction %>% glimpse()
+
+train_reg <- lm(Y ~ X, training_bias_reduction)
+
+training_bias_reduction <- training_bias_reduction %>% 
+  mutate(u_hat0 = predict(train_reg))
 
 
 
 
 ```
+
+
+
+
+```{r　new_experimental}
+
+library(pacman)
+pacman::p_load(tidyverse, haven)
+
+read_data <- function(df)
+{
+  full_path <- paste("https://raw.github.com/scunning1975/mixtape/master/",
+                   df, sep = "")
+  df <- read_dta(full_path)
+  return(df)
+  }
+
+
+nsw_dw <- read_data("nsw_mixtape.dta")
+
+# nsw_dw %>% pull(data_id) %>% unique()
+
+nsw_dw %>% glimpse()
+
+nsw_dw %>% 
+  filter(treat == 1) %>% 
+  summary(re78)
+
+
+nsw_dw %>% 
+  group_by(treat) %>% 
+  nest() %>% 
+  mutate(summary = map(.x = data, ~summary(.x))) %>% 
+  pull(summary)
+
+nsw_dw %>% glimpse()
+
+mean1 <- nsw_dw %>% 
+  filter(treat == 1) %>% 
+  pull(re78) %>% #income
+  mean()
+
+nsw_dw$y1 <- mean1
+
+mean0 <- nsw_dw %>% 
+  filter(treat == 0) %>% 
+  pull(re78) %>% 
+  mean()
+
+
+nsw_dw$y0 <- mean0
+
+ate <- unique(nsw_dw$y1 - nsw_dw$y0)
+
+nsw_dw <- nsw_dw %>% 
+  filter(treat == 1) %>% 
+  select(-y1, -y0)#とりあえずNSW_programのparticipantsのデータを揃えた
+
+
+
+
+```
+
+
+
+
+```{r ps_score}
+
+nsw_dw_cpscontrol <- read_data("cps_mixtape.dta") %>% 
+  bind_rows(nsw_dw) %>% 
+  mutate(agesq = age^2,
+         agecube = age^3,
+         educsq = educ * educ,
+         u74 = case_when(re74 == 0 ~ 1, TRUE ~ 0),
+         u75 = case_when(re75 == 0 ~ 1, TRUE ~ 0),
+         interaction1 = educ * re74,
+         re74sq = re74^2,
+         re75sq = re75^2,
+         interaction2 = u74*hisp)
+
+nsw_dw_control %>% 
+  select(re74, re75) -> re
+
+
+
+re %>% 
+  ggplot(aes(x = re74)) + 
+  geom_histogram()
+
+
+re %>% 
+  ggplot(aes(x = re75)) + geom_histogram()
+
+# estimating ps_score
+
+logit_nsw <- glm(treat ~ age + agesq + agecube + educ + educsq + marr + nodegree + black + hisp + re74 + re75 + u74 + 
+                   u75 + interaction1, family = binomial(link = "logit"), data = nsw_dw_cpscontrol)
+
+nsw_dw_cpscontrol <- nsw_dw_cpscontrol %>% 
+  mutate(psscore = logit_nsw$fitted.values)
+
+# psscoreの分布をみる
+
+nsw_dw_cpscontrol %>% 
+  select(treat, psscore) %>% 
+  ggplot(aes(x = psscore)) + 
+  geom_histogram(aes(y = ..density..)) + 
+  facet_grid(~treat) + 
+  labs(y = "Density")
+
+
+nsw_dw_cpscontrol %>% 
+  filter(treat == 1) %>% 
+  ggplot(aes(x = psscore)) + 
+  geom_histogram() + 
+  ylim(c(0, 50)) 
+
+
+
+# mean psscore
+
+psscore_control <- nsw_dw_cpscontrol %>% 
+  filter(treat == 0) %>% 
+  pull(psscore) %>% 
+  mean()
+
+
+psscore_treated <- nsw_dw_cpscontrol %>%
+  filter(treat == 1) %>% 
+  pull(psscore) %>% 
+  mean()
+
+psscore_control
+
+psscore_treated
+
+
+
+
+```
+
+
+
+
+
+
+
 
 
 
